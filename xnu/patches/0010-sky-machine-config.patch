@@ -62,6 +62,91 @@ diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_
  #ifdef ARM64_BOARD_CONFIG_VMAPPLE
  #include <pexpert/arm64/VMAPPLE.h>
  
+diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
+--- a/osfmk/arm64/proc_reg.h
++++ b/osfmk/arm64/proc_reg.h
+@@ -208,6 +208,14 @@
+ #elif defined (BCM2837) /* Raspberry Pi 3 */
+ 
+ /* I-Cache. We don't have detailed spec so we just follow the ARM technical reference. */
++#define MMU_I_CLINE 6
++
++/* D-Cache. */
++#define MMU_CLINE   6
++
++#elif defined (SKY) /* Qualcomm Kryo: Cortex-A78 + Cortex-A55 */
++
++/* I-Cache. */
+ #define MMU_I_CLINE 6
+ 
+ /* D-Cache. */
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -141,11 +141,25 @@
+ 		}
+ 	}
+ 
++#if defined(SKY)
++	/*
++	 * Real hardware with two security states: Group 0 is TrustZone's and
++	 * non-secure writes to it are ignored. Everything we own is Group 1 NS
++	 * and arrives as an IRQ (see sleh_irq). GICR_IGROUPR0 reads as zero
++	 * from the non-secure side even after this write; delivery still works.
++	 */
++	gicr_write32(GICR_IGROUPR0, 0xFFFFFFFF);
++	for (unsigned int i = 0; i < 32; i += 4) {
++		gicr_write32(GICR_IPRIORITYR0 + i, 0xA0A0A0A0);
++	}
++	gicr_write32(GICR_ISENABLER0, (1U << SKY_VTIMER_INTID) | (1U << SKY_IPI_SGI));
++#else
+ 	// Configure timers and legacy FIQ to be group 0
+ 	gicr_write32(GICR_IGROUPR0, 0x81FFFFFF);
+ 
+ 	// Enable PPI 27
+ 	gicr_write32(GICR_ISENABLER0, (1 << 27));
++#endif /* SKY */
+ 
+ 	// Enable system register access
+ 	uint64_t icc_sre = __builtin_arm_rsr64("ICC_SRE_EL1");
+@@ -153,8 +167,12 @@
+ 	__builtin_arm_wsr64("ICC_SRE_EL1", icc_sre);
+ 	__builtin_arm_isb(ISB_SY);
+ 
++#if defined(SKY)
++	__builtin_arm_wsr64("ICC_BPR1_EL1", 0);
++#else
+ 	// Set priority masks and binary point for group 0
+ 	__builtin_arm_wsr64("ICC_BPR0_EL1", 0);
++#endif /* SKY */
+ 	__builtin_arm_wsr64("ICC_PMR_EL1", 0xFF);
+ 
+ 	// Set EOI mode of this processor
+@@ -162,12 +180,24 @@
+ 	icc_ctlr &= ~ICC_CTLR_EOIMODE;
+ 	__builtin_arm_wsr64("ICC_CTLR_EL1", icc_ctlr);
+ 
++#if defined(SKY)
++	// ABL leaves only ARE_NS set; enable Group 1 too
++	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
++	gicd_ctlr |= GICD_CTLR_ARE_NS | GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1;
++	gicd_write32(GICD_CTLR, gicd_ctlr);
++	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
++		;
++	}
++	__builtin_arm_wsr64("ICC_IGRPEN1_EL1", 1);
++	__builtin_arm_isb(ISB_SY);
++#else
+ 	// Enable the forwarding of the vtimer interrupt
+ 	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
+ 	gicd_ctlr |= GICD_CTLR_ENABLEGRP0;
+ 	gicd_write32(GICD_CTLR, gicd_ctlr);
+ 	__builtin_arm_wsr64("ICC_IGRPEN0_EL1", 1);
+ 	__builtin_arm_isb(ISB_SY);
++#endif /* SKY */
+ }
+ #else
+ void
 diff --git a/pexpert/pexpert/arm64/SKY.h b/pexpert/pexpert/arm64/SKY.h
 new file mode 100644
 index 0000000..1111111
