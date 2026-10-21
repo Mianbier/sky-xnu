@@ -1,0 +1,151 @@
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -29,7 +29,7 @@
+ else ifneq ($(findstring _host,$(RC_ProjectName)),)
+ SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
+ else
+-SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE
++SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE SKY
+ 
+ endif
+ 
+@@ -61,6 +61,7 @@
+ MACHINE_FLAGS_ARM64_T6000 = -DARM64_BOARD_CONFIG_T6000 		-mcpu=apple-a14
+ MACHINE_FLAGS_ARM64_VMAPPLE = -DARM64_BOARD_CONFIG_VMAPPLE              -march=armv8.5a
+ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
++MACHINE_FLAGS_ARM64_SKY = -DARM64_BOARD_CONFIG_SKY              -march=armv8.2-a+crypto
+ 
+ 
+ #
+@@ -259,7 +260,9 @@
+ # Without embdedded device map, use a default arch string
+ export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := $(shell echo $(CURRENT_ARCH_CONFIG) | tr A-Z a-z)
+ ifneq ($(filter arm64,$(ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG)),)
++ifneq ($(CURRENT_MACHINE_CONFIG),SKY)
+ export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := arm64e
++endif
+ endif
+ 
+ endif
+diff --git a/pexpert/pexpert/arm64/Makefile b/pexpert/pexpert/arm64/Makefile
+--- a/pexpert/pexpert/arm64/Makefile
++++ b/pexpert/pexpert/arm64/Makefile
+@@ -17,7 +17,8 @@
+ 	boot.h \
+ 	H13.h \
+ 	VMAPPLE.h \
+-	BCM2837.h
++	BCM2837.h \
++	SKY.h
+ 
+ 
+ # Headers installed into System.framework/PrivateHeaders (userspace internal SDK only).
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -97,6 +97,17 @@
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ #endif  /* ARM64_BOARD_CONFIG_BCM2837 */
+ 
++#ifdef ARM64_BOARD_CONFIG_SKY
++#include <pexpert/arm64/SKY.h>
++
++#define MAX_L2_CLINE                   6
++#define MAX_CPUS                       8
++#define MAX_CPU_CLUSTERS               2
++
++#define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
++
++#endif  /* ARM64_BOARD_CONFIG_SKY */
++
+ #ifdef ARM64_BOARD_CONFIG_VMAPPLE
+ #include <pexpert/arm64/VMAPPLE.h>
+ 
+diff --git a/pexpert/pexpert/arm64/SKY.h b/pexpert/pexpert/arm64/SKY.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/pexpert/pexpert/arm64/SKY.h
+@@ -0,0 +1,81 @@
++/*
++ * Board config for the Redmi Note 12R ("sky", Qualcomm SM4450 /
++ * Snapdragon 4 Gen 2): Kryo = Cortex-A78 + Cortex-A55, ARMv8.2, no PAC.
++ *
++ * Generic ARM like BCM2837 (no APPLE_ARM64_ARCH_FAMILY: none of Apple's
++ * implementation-defined system registers exist), 16K pages and GICv3 like
++ * VMAPPLE. Unlike VMAPPLE this GIC has two security states
++ * (GICD_TYPER SecurityExtn=1): Group 0 belongs to TrustZone, so every
++ * interrupt, including the timer, is a Group 1 IRQ taken through sleh_irq().
++ *
++ * Measured on the device with a bare-metal payload (2026-10-21):
++ *   CurrentEL = EL1, MMU/caches off, x0 = live DTB pointer
++ *   MIDR_EL1  = 0x412FD050   (Cortex-A55, core 0)
++ *   MPIDR_EL1 = 0x81000000
++ *   DTB       = passed in x0, magic 0xD00DFEED
++ */
++
++#ifndef _PEXPERT_ARM64_SKY_H
++#define _PEXPERT_ARM64_SKY_H
++
++#define NO_MONITOR                1
++#define NO_ECORE                  1
++
++#define SKY                       1
++
++#define ARM_ARCH_TIMER
++#define __ARM_ARCH__              8
++#define __ARM_VMSA__              8
++#define __ARM_VFP__               4
++#define __ARM_COHERENT_CACHE__    1
++#define __ARM_DEBUG__             7
++#define __ARM_ENABLE_SWAP__       1
++#define __ARM_V8_CRYPTO_EXTENSIONS__ 1
++#define __ARM_PAN_AVAILABLE__     1
++#define __ARM_16K_PG__            1
++
++#define HAS_GIC_V3                1
++
++#ifndef ASSEMBLER
++#define PLATFORM_PANIC_LOG_DISABLED
++#endif /* ! ASSEMBLER */
++
++/*
++ * Qualcomm numbers the architected timer PPIs 1/2/3/0 (secure phys, phys,
++ * virt, hyp) instead of the usual 13/14/11/10: the virtual timer XNU uses
++ * (CNTV) is INTID 16 + 3 = 19.
++ */
++#define SKY_VTIMER_INTID          19
++#define SKY_IPI_SGI               1       /* SGI used for cross-CPU signals */
++
++#define GIC_SPURIOUS_IRQ          1023    /* IRQ no. for GIC spurious interrupt */
++
++#define GICR_PE_SIZE              0x20000 /* Size of each redistributor region */
++
++/* GICv3 register definitions; see GICv3 spec (Arm IHI 0069G) */
++#define GICD_CTLR                 0x0
++
++/* Non-secure view of GICD_CTLR (DS=0) */
++#define GICD_CTLR_ENABLEGRP1      0x1
++#define GICD_CTLR_ENABLEGRP1A     0x2
++#define GICD_CTLR_ARE_NS          0x10
++#define GICD_CTLR_RWP             0x80000000
++
++#define GICR_TYPER                              0x08
++#define GICR_WAKER                              0x14
++#define GICR_IGROUPR0                           0x10080
++#define GICR_ISENABLER0                         0x10100
++#define GICR_IPRIORITYR0                        0x10400
++
++#define GICR_TYPER_AFFINITY_VALUE_SHIFT         32
++#define GICR_TYPER_LAST                         0x10
++
++#define GICR_WAKER_PROCESSORSLEEP               0x2
++#define GICR_WAKER_CHILDRENASLEEP               0x4
++
++#define ICC_CTLR_EOIMODE                        0x2
++
++#define ICC_SRE_SRE                             0x1
++/* End of GICv3 register definitions */
++
++#endif /* ! _PEXPERT_ARM64_SKY_H */
