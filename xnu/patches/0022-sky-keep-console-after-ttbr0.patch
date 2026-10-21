@@ -178,7 +178,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
 @@ -523,6 +523,7 @@
  
- sky_early_mark(7, "entering arm_vm_init");
+ 	sky_early_mark(7, "entering arm_vm_init");
  	arm_vm_init(xmaxmem, args);
 +	sky_early_mark(15, "arm_vm_init returned");
  
