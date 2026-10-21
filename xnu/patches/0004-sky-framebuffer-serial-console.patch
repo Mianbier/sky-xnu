@@ -9,7 +9,8 @@ index 997a4ab..db26bbe 100644
 +/*****************************************************************************/
 +
 +/*
-+ * sky: framebuffer "serial" for boards with no usable UART (the sky's debug UART engine runs in SPI mode). kprintf output is drawn onto
++ * sky: framebuffer "serial" for boards with no usable UART (the Redmi Note
++ * 10 Pro's debug UART engine runs in SPI mode). kprintf output is drawn onto
 + * the boot framebuffer described by the ADT node "sky-fbcon":
 + *   reg    = <phys size>       absolute physical address, not arm-io relative
 + *   width, height              pixels
