@@ -80,14 +80,14 @@ diff --git a/osfmk/arm64/sky_early.h b/osfmk/arm64/sky_early.h
 diff --git a/osfmk/arm64/Makefile b/osfmk/arm64/Makefile
 --- a/osfmk/arm64/Makefile
 +++ b/osfmk/arm64/Makefile
-@@ -22,6 +22,7 @@
- 	machine_remote_time.h \
+@@ -40,6 +40,7 @@
  	monotonic.h \
+ 	perfmon_arm64_regs.h \
  	proc_reg.h \
 +	sky_early.h \
+ 	asm.h \
  	tlb.h \
- 	$(ARM_HEADER_FILES)
- 
+ 	pal_hibernate.h
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
