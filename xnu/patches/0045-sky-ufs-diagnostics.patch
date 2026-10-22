@@ -1,0 +1,67 @@
+diff --git a/bsd/dev/sky_ufs.c b/bsd/dev/sky_ufs.c
+--- a/bsd/dev/sky_ufs.c
++++ b/bsd/dev/sky_ufs.c
+@@ -50,6 +50,10 @@
+ 
+ #define HCS_DP          (1u << 0)
+ #define HCS_UTRLRDY     (1u << 1)
++#define HCS_UCRDY       (1u << 3)
++
++#define REG_CAP         0x00
++#define REG_VER         0x08
+ 
+ #define UFS_BLOCK       4096u
+ #define BOUNCE_SIZE     (1u << 20)
+@@ -185,6 +189,18 @@
+ 	if (ocs || ucd->resp[0] != 0x21 || ucd->resp[6] || ucd->resp[7]) {
+ 		printf("SKY UFS: command 0x%02x failed: ocs 0x%x upiu 0x%x response 0x%x status 0x%x\n",
+ 		    cdb[0], ocs, ucd->resp[0], ucd->resp[6], ucd->resp[7]);
++		/* The first 32 bytes are the UPIU header; a CHECK CONDITION carries
++		 * the SCSI sense data after it, which is what actually says why. */
++		printf("SKY UFS:  resp hdr %02x %02x %02x %02x %02x %02x %02x %02x"
++		    " %02x %02x %02x %02x %02x %02x %02x %02x\n",
++		    ucd->resp[0], ucd->resp[1], ucd->resp[2], ucd->resp[3],
++		    ucd->resp[4], ucd->resp[5], ucd->resp[6], ucd->resp[7],
++		    ucd->resp[8], ucd->resp[9], ucd->resp[10], ucd->resp[11],
++		    ucd->resp[12], ucd->resp[13], ucd->resp[14], ucd->resp[15]);
++		printf("SKY UFS:  sense key 0x%x asc 0x%x ascq 0x%x"
++		    " residual %u\n",
++		    ucd->resp[16 + 2] & 0xf, ucd->resp[16 + 12], ucd->resp[16 + 13],
++		    (uint32_t)(ucd->resp[12] | ucd->resp[13] << 8));
+ 		return EIO;
+ 	}
+ 	return 0;
+@@ -262,7 +278,13 @@
+ static int
+ ufs_take_over_host(void)
+ {
++	uint32_t cap = ufs_rd(REG_CAP), ver = ufs_rd(REG_VER);
+ 	uint32_t hce = ufs_rd(REG_HCE), hcs = ufs_rd(REG_HCS);
++	printf("SKY UFS: ver 0x%x cap 0x%x hce 0x%x hcs 0x%x is 0x%x\n",
++	    ver, cap, hce, hcs, ufs_rd(REG_IS));
++	printf("SKY UFS: utrlba 0x%x/0x%x rsr 0x%x dbr 0x%x nutrs %u\n",
++	    ufs_rd(REG_UTRLBA), ufs_rd(REG_UTRLBAU), ufs_rd(REG_UTRLRSR),
++	    ufs_rd(REG_UTRLDBR), (cap & 0x1f) + 1);
+ 	if (!(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY)) {
+ 		printf("SKY UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
+ 		return ENXIO;
+@@ -489,8 +511,17 @@
+ 	error = ufs_take_over_host();
+ 	if (!error) {
+ 		static const uint8_t tur[6] = { 0x00 };
+-		/* The first command after the bootloader may report a unit attention. */
+-		for (int i = 0; i < 3 && (error = ufs_scsi(tur, sizeof(tur), 0)); i++) {
++		/*
++		 * The first command after the bootloader may report a unit attention,
++		 * and the device may need a moment after our UTRL takeover. Retry with
++		 * a delay rather than three back-to-back attempts.
++		 */
++		for (int i = 0; i < 8; i++) {
++			error = ufs_scsi(tur, sizeof(tur), 0);
++			if (!error) {
++				break;
++			}
++			delay(10);
+ 		}
+ 	}
+ 	if (!error) {
