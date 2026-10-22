@@ -81,12 +81,20 @@ jobs:
             command -v "$t" || echo MISSING
           done
 
-      - name: Fetch the three DMGs
+      # Download the whole IPSW and unzip the three members we need: simpler and
+      # more robust than parsing the zip64 central directory and issuing ~900
+      # range requests, and the archive is smaller than its members anyway.
+      - name: Fetch the IPSW
         run: |
+          set -eux
           mkdir -p "$WORK/ipsw"
-          python3 ci/iosroot/fetch_ipsw.py "${{ inputs.ipsw_url }}" "$WORK/ipsw" \
-            "$OS_DMG" "$SYS_DMG" "$APP_DMG"
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
+               -o "$WORK/ios.ipsw" "${{ inputs.ipsw_url }}"
+          ls -la "$WORK/ios.ipsw"
+          df -h /mnt
+          unzip -o "$WORK/ios.ipsw" "$OS_DMG" "$SYS_DMG" "$APP_DMG" -d "$WORK/ipsw"
           ls -la "$WORK/ipsw"
+          rm -f "$WORK/ios.ipsw"
           df -h /mnt
 
       - name: Build the HFS+ root
