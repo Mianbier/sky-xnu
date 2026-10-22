@@ -73,6 +73,16 @@ jobs:
           ls -la out
           (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
 
+      # `sed -n l` marks line ends with $ and CR with \r, so this shows exactly
+      # what git apply saw when a patch failed to apply.
+      - name: Debug patched trees
+        if: always()
+        run: |
+          for f in iokit/conf/files.arm64 iokit/KernelConfigTables.cpp; do
+            echo "=== dxb/xnu/$f ==="
+            sed -n '1,60l' "dxb/xnu/$f" 2>/dev/null || echo "(missing)"
+          done
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
