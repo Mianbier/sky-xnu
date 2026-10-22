@@ -48,13 +48,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # apfs-fuse is not in Ubuntu 24.04's archive and hfsprogs may not be
+      # either, so install what exists, then build what does not. Everything
+      # here is only needed to read the IPSW's APFS images and to write a
+      # case-sensitive journaled HFS+ volume.
       - name: Tooling
         run: |
+          set -x
           sudo apt-get update -qq
-          sudo apt-get install -y -qq apfs-fuse hfsprogs rsync zstd curl
-          apfs-fuse -h 2>&1 | head -2 || true
-          mkfs.hfsplus -V 2>&1 | head -2 || true
-          df -h /mnt / || true
+          for p in rsync zstd curl cmake g++ git libfuse3-dev libbz2-dev \
+                   zlib1g-dev libssl-dev libattr1-dev pkg-config hfsprogs; do
+            if sudo apt-get install -y -qq "$p" >/dev/null 2>&1; then
+              echo "OK   $p"
+            else
+              echo "MISS $p"
+            fi
+          done
+          df -h /mnt /
+
+          if ! command -v apfs-fuse >/dev/null; then
+            echo "--- building apfs-fuse from source ---"
+            git clone -q --depth 1 https://github.com/sgan81/apfs-fuse /tmp/apfs-fuse
+            git -C /tmp/apfs-fuse submodule update --init --recursive --depth 1
+            cmake -S /tmp/apfs-fuse -B /tmp/apfs-fuse/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+            cmake --build /tmp/apfs-fuse/build -j"$(nproc)" >/dev/null
+            sudo install -m 0755 /tmp/apfs-fuse/build/apfs-fuse /usr/local/bin/
+          fi
+
+          echo "--- capability check ---"
+          for t in apfs-fuse mkfs.hfsplus fsck.hfsplus rsync zstd curl; do
+            printf '%-16s ' "$t"
+            command -v "$t" || echo MISSING
+          done
 
       - name: Fetch the three DMGs
         run: |
