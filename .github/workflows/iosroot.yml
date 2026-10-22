@@ -1,0 +1,116 @@
+name: iosroot
+
+# Build the iOS root filesystem image for sky.
+#
+# This has to run on Linux: reading the IPSW's APFS images needs apfs-fuse (a
+# FUSE filesystem) and writing the case-sensitive journaled HFS+ volume needs
+# hfsprogs. Neither exists for Windows, which is the only host the developer
+# has.
+#
+# The output is a single HFS+ image that goes on the phone's userdata partition
+# (the kernel reaches "Waiting on IOMedia Apple_HFS" and needs a root).
+#
+# Delivery: the compressed image is ~2-4 GB, which is over the artifact quota,
+# so it is published as release assets split at 1.9 GB (GitHub allows 2 GB per
+# asset and does not count release storage against the Actions quota).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipsw_url:
+        description: IPSW to take the root filesystem from
+        default: "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+      size:
+        description: HFS+ volume size
+        default: "12G"
+      publish:
+        description: "true = upload release assets, false = build only"
+        default: "true"
+
+concurrency:
+  group: iosroot-${{ github.ref }}
+  cancel-in-progress: true
+
+# gh release upload needs write access to the repo's releases.
+permissions:
+  contents: write
+
+env:
+  WORK: /mnt/iosroot            # the runner's large scratch disk
+  OS_DMG: 087-86698-044.dmg     # OS               4.7 GB  root filesystem
+  SYS_DMG: 087-86593-047.dmg    # Cryptex1,SystemOS 2.7 GB
+  APP_DMG: 087-86715-047.dmg    # Cryptex1,AppOS    10 MB
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apfs-fuse hfsprogs rsync zstd curl
+          apfs-fuse -h 2>&1 | head -2 || true
+          mkfs.hfsplus -V 2>&1 | head -2 || true
+          df -h /mnt / || true
+
+      - name: Fetch the three DMGs
+        run: |
+          mkdir -p "$WORK/ipsw"
+          python3 ci/iosroot/fetch_ipsw.py "${{ inputs.ipsw_url }}" "$WORK/ipsw" \
+            "$OS_DMG" "$SYS_DMG" "$APP_DMG"
+          ls -la "$WORK/ipsw"
+          df -h /mnt
+
+      - name: Build the HFS+ root
+        run: |
+          sudo -E bash ci/iosroot/mkiosroot.sh \
+            "$WORK/ipsw/$OS_DMG" "$WORK/ipsw/$SYS_DMG" "$WORK/ipsw/$APP_DMG" \
+            "$WORK/sky-iosroot.img" "${{ inputs.size }}"
+          ls -la "$WORK"/sky-iosroot.img
+          df -h /mnt
+
+      # Uncompressed content plus the IPSW will not both fit, and we no longer
+      # need the DMGs once the image exists.
+      - name: Drop the sources
+        if: always()
+        run: rm -rf "$WORK/ipsw" && df -h /mnt
+
+      - name: Compress
+        run: |
+          cd "$WORK"
+          zstd -T0 -3 --long=27 sky-iosroot.img -o sky-iosroot.img.zst
+          ls -la sky-iosroot.img.zst
+          sha256sum sky-iosroot.img sky-iosroot.img.zst > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Split for release assets (2 GB limit each)
+        run: |
+          cd "$WORK"
+          split -b 1900M -d sky-iosroot.img.zst sky-iosroot.img.zst.part
+          ls -la sky-iosroot.img.zst.part* | head -20
+          du -sh sky-iosroot.img.zst.part* 2>/dev/null | tail -1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iosroot-sums
+          path: |
+            /mnt/iosroot/SHA256SUMS
+          if-no-files-found: warn
+
+      - name: Publish release assets
+        if: inputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="iosroot-$(date +%Y%m%d-%H%M)"
+          gh release create "$tag" --title "sky iOS root $tag" \
+            --notes "HFS+ root filesystem image built from ${{ inputs.ipsw_url }} for sky (Redmi Note 12R). Concatenate the parts with: cat sky-iosroot.img.zst.part* | zstd -d > sky-iosroot.img" \
+            || gh release create "$tag" --title "sky iOS root $tag"
+          for f in "$WORK"/sky-iosroot.img.zst.part*; do
+            gh release upload "$tag" "$f" --clobber
+          done
+          gh release view "$tag"
