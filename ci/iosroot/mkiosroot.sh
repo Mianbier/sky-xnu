@@ -66,6 +66,16 @@ apfs_mount "$os" os
 apfs_mount "$sysos" sysos
 apfs_mount "$appos" appos
 
+# The Ubuntu runner kernel ships hfsplus as a module; loading it explicitly is
+# the difference between "unknown filesystem type 'hfsplus'" and a mount.
+sudo modprobe hfsplus 2>/dev/null || true
+if ! grep -qw hfsplus /proc/filesystems; then
+	echo "hfsplus is not available in this kernel" >&2
+	echo "  modules: $(ls /lib/modules/$(uname -r)/kernel/fs 2>/dev/null | tr '\n' ' ')" >&2
+	echo "  try: sudo apt install linux-modules-extra-$(uname -r)" >&2
+	exit 3
+fi
+
 truncate -s "$size" "$out"
 mkfs.hfsplus -s -J -v iOSRoot "$out"
 mkdir "$work/root"
