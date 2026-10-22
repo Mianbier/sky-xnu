@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/sky_ufs.c b/bsd/dev/sky_ufs.c
 --- a/bsd/dev/sky_ufs.c
 +++ b/bsd/dev/sky_ufs.c
-@@ -50,6 +50,10 @@
+@@ -55,6 +55,10 @@
  
  #define HCS_DP          (1u << 0)
  #define HCS_UTRLRDY     (1u << 1)
@@ -9,10 +9,10 @@ diff --git a/bsd/dev/sky_ufs.c b/bsd/dev/sky_ufs.c
 +
 +#define REG_CAP         0x00
 +#define REG_VER         0x08
+ #define CAP_64AS        (1u << 24)              /* 64-bit DMA addressing */
  
  #define UFS_BLOCK       4096u
- #define BOUNCE_SIZE     (1u << 20)
-@@ -185,6 +189,18 @@
+@@ -193,6 +197,18 @@
  	if (ocs || ucd->resp[0] != 0x21 || ucd->resp[6] || ucd->resp[7]) {
  		printf("SKY UFS: command 0x%02x failed: ocs 0x%x upiu 0x%x response 0x%x status 0x%x\n",
  		    cdb[0], ocs, ucd->resp[0], ucd->resp[6], ucd->resp[7]);
@@ -31,7 +31,7 @@ diff --git a/bsd/dev/sky_ufs.c b/bsd/dev/sky_ufs.c
  		return EIO;
  	}
  	return 0;
-@@ -262,7 +278,13 @@
+@@ -298,7 +314,13 @@
  static int
  ufs_take_over_host(void)
  {
@@ -45,23 +45,3 @@ diff --git a/bsd/dev/sky_ufs.c b/bsd/dev/sky_ufs.c
  	if (!(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY)) {
  		printf("SKY UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
  		return ENXIO;
-@@ -489,8 +511,17 @@
- 	error = ufs_take_over_host();
- 	if (!error) {
- 		static const uint8_t tur[6] = { 0x00 };
--		/* The first command after the bootloader may report a unit attention. */
--		for (int i = 0; i < 3 && (error = ufs_scsi(tur, sizeof(tur), 0)); i++) {
-+		/*
-+		 * The first command after the bootloader may report a unit attention,
-+		 * and the device may need a moment after our UTRL takeover. Retry with
-+		 * a delay rather than three back-to-back attempts.
-+		 */
-+		for (int i = 0; i < 8; i++) {
-+			error = ufs_scsi(tur, sizeof(tur), 0);
-+			if (!error) {
-+				break;
-+			}
-+			delay(10);
- 		}
- 	}
- 	if (!error) {
