@@ -80,6 +80,13 @@ jobs:
             sudo install -m 0755 /tmp/apfs-fuse/build/apfs-fuse /usr/local/bin/
           fi
 
+          # hfsplus is a module in the runner kernel; without it the HFS+ image
+          # can be created but not mounted, so the root cannot be populated.
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || true
+          sudo modprobe hfsplus 2>/dev/null || true
+          echo "--- hfsplus availability ---"
+          grep -w hfsplus /proc/filesystems || echo "hfsplus NOT in /proc/filesystems"
+
           echo "--- capability check ---"
           for t in apfs-fuse mkfs.hfsplus fsck.hfsplus rsync zstd curl; do
             printf '%-16s ' "$t"
