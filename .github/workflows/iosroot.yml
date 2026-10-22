@@ -64,6 +64,11 @@ jobs:
               echo "MISS $p"
             fi
           done
+          # /mnt exists but belongs to root on the runner image; /mnt and / are
+          # the same filesystem here, so this keeps the 80+ GB free space usable.
+          sudo mkdir -p "$WORK"
+          sudo chown -R "$(id -u):$(id -g)" "$WORK"
+          touch "$WORK/.writable" && echo "WORK is writable"
           df -h /mnt /
 
           if ! command -v apfs-fuse >/dev/null; then
