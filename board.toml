@@ -1,0 +1,173 @@
+# Board description of the Redmi Note 12R (sky, SM4450), read by the unixnu build driver.
+#
+# Modelled on UniXNU-sheng/board.toml and the official examples/device template.
+# Values marked TODO must be measured before they can be trusted; everything else
+# comes from data already collected on this handset.
+#
+# Measured on the device:
+#   DRAM      /memory = 0x80000000 + 0x68E00000, ends at 0xE8E00000
+#   userdata  GPT entry 2402344..30693370 (0x24A5C8..0x1D45FBA), 4096-byte blocks
+#   display   1080x2460, splash_region 0xB8000000 + 0x02B00000
+#   firmware  the volume must live at 0xAC000000; 0x9FC00000 reads back zero with
+#             the MMU off and silently swallowed every earlier build
+#   watchdog  0x17410000 is XPU-protected, writing it from the SEC faults
+#   vendor    stock vendor drivers assert (EnvDxe and its stack); uefi-sheng keeps
+#             them off by default, so SKY_VENDOR_HW stays 0
+
+[board]
+name        = "sky"
+soc         = "SM4450"
+description = "Redmi Note 12R (sky, SM4450)"
+kit         = "sky"
+
+# The target OS image. Give --ipsw PATH to use a local file; without it the remote
+# url is read with range requests and only the needed members are fetched.
+[ipsw]
+product      = "iPhone10,6"
+version      = "16.7.16"
+build        = "20H392"
+device_class = "d22ap"
+chip_id      = 0x8015
+board_id     = 10
+fetch        = ["KernelCache", "DeviceTree", "StaticTrustCache"]
+# TODO: add the restore-image url and the SHA-256 of the DMG members.
+
+# The raw image for the userdata partition: the OS and SystemOS disk images behind
+# a manifest. first_lba and last_lba are sky's GPT "userdata" entry, in 4096-byte
+# units. userdata currently holds the 12 GB HFSX tree built earlier.
+[userdata]
+first_lba = 0x24A5C8
+last_lba  = 0x1D45FBA
+lba_bytes = 4096
+windows = [
+  { name = "OS",       component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[kernel]
+defconfig = "sky_defconfig"
+# Archive builders of the kernel step. NativeUfs matters most: storage is reached
+# from inside XNU, not through the UEFI vendor drivers, which is exactly how
+# uefi-sheng gets storage despite never enabling SHENG_VENDOR_HW.
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-arm-driver.py ArmDTPlatform",
+  "build-arm-driver.py ArmCpu",
+  "build-arm-driver.py NativeUfs",
+  "build-arm-driver.py NativeRamBlock",
+  "build-mockfs-fixture.py",
+  "build-sky-platform-power.py",
+  "build-boot-progress.py",
+  "build-libpthread-kernel.py",
+]
+
+[kernel.prelink]
+tool   = "kits/NativePrelink/emit_prelink.py"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+slide  = "-0x1000000"
+# TODO: kernelcache_sha256 and early_security_init once the kernel is built.
+roots  = [
+  "com.apple.driver.AppleARMPlatform",
+  "com.apple.driver.AppleARMWatchdogTimer",
+  "com.apple.driver.AppleEffaceableStorage",
+  "com.apple.driver.AppleMobileFileIntegrity",
+  "com.apple.driver.IODARTFamily",
+  "com.apple.filesystems.apfs",
+  "com.apple.iokit.IOCryptoAcceleratorFamily",
+  "com.apple.iokit.IOGPUFamily",
+  "com.apple.iokit.IOMobileGraphicsFamily",
+  "com.apple.iokit.IOReportFamily",
+  "com.apple.iokit.IOStorageFamily",
+  "com.apple.iokit.IOSurface",
+  "com.apple.kec.Libm",
+  "com.apple.kec.corecrypto",
+  "com.apple.kext.AppleMatch",
+  "com.apple.kext.CoreTrust",
+  "com.apple.security.AppleImage4",
+  "com.apple.security.sandbox",
+  "com.apple.iokit.IOHIDFamily",
+  "com.apple.iokit.IOHIDEventDriver",
+]
+
+[firmware]
+config     = "sky"
+dsc        = "Platforms/Xiaomi/skyPkg/sky.dsc"
+fd         = "Build/skyPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl"]
+patches    = ["Resources/MuPatches/Gic-Spurious.patch"]
+packages   = [
+  "{uefi}",
+  "{uefi}/Platforms/Xiaomi",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+]
+
+[firmware.defines]
+ENABLE_SECUREBOOT = "0"
+DEVICE_MODEL      = "sky"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE         = "FALSE"
+BUILDID_STRING    = "sky-research"
+
+# The ramdisk of the boot image: a FAT volume carrying the UniXNU config, the
+# kernel, its device tree and the optional trust cache. The loader (DarwinBoot) is
+# part of the firmware volume.
+[payload]
+volume       = "SKYESP"
+size_mib     = 192
+loader       = "firmware"
+title        = "Boot"
+dram_size    = "0x68E00000"
+panic_screen = true
+kernel_args  = [
+  "-v",
+  "serial=3",
+  "debug=0x14e",
+  "kt_fixed_zones=120",
+  "native-ufs-root=1",
+  "offline-legacy-register=1",
+  "offline-legacy-gop=1",
+  "offline-mobile-graphics-client=1",
+  "offline-apfs-load=1",
+  "boot-progress=2",
+  "sky-pmgr=2",
+  "sky-disable-watchdogd=1",
+  "sky-smp=1",
+  "sky-touch=4",
+  "sky-aks=1",
+  "-no_slto_panic",
+]
+
+[payload.adt]
+tool        = "scripts/make-sky-adt.py"
+chip_id     = "32789"
+# 3.84 GiB of DRAM, from /proc/meminfo and the device tree.
+owned_memory_size = "0xF0000000"
+# TODO: the APFS root volume UUID, read from the built userdata image.
+root_match_volume_uuid = "TODO"
+# sky's /cpus carries cpu@0 .. cpu@700, MPIDR 0x0, 0x100 .. 0x700. Only the boot
+# core is enabled for first bring-up.
+cpu_regs             = "0"
+packed_data_ramdisk  = true
+persistent_data      = true
+ipad_identity        = false
+unique_chip_id       = "required"
+
+# The stock ABL powers the panel off when the device tree has no splash region.
+# sky's live device tree already carries one; this keeps the intent explicit and
+# survives regenerating the DTB.
+[[bootimg.dtb_node]]
+path  = "/reserved-memory/splash_region"
+props = [
+  { name = "label", type = "s", value = "cont_splash_region" },
+  { name = "reg",   type = "x", value = ["0x0", "0xb8000000", "0x0", "0x2b00000"] },
+]
