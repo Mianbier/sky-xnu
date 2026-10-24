@@ -1,6 +1,12 @@
 name: xnu
 
 on:
+  # A push to these paths also starts a build: the token used to
+  # maintain this repository cannot call workflow_dispatch.
+  push:
+    paths:
+      - 'xnu/**'
+      - '.github/workflows/xnu.yml'
   workflow_dispatch:
     inputs:
       macos_version:
@@ -10,8 +16,8 @@ on:
         description: RELEASE / DEVELOPMENT / DEBUG
         default: DEVELOPMENT
       machine_config:
-        description: xnu MACHINE_CONFIG (sky uses SKY once added)
-        default: "SKY"
+        description: xnu MACHINE_CONFIG; BCM2837 is the arm64 generic one UniXNU uses
+        default: "BCM2837"
       keep_going:
         description: make -k (collect all compile errors in one run)
         default: "true"
@@ -25,7 +31,7 @@ env:
   DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
   MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
-  MACHINE_CONFIG: ${{ inputs.machine_config || 'SKY' }}
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'BCM2837' }}
 
 jobs:
   build:
