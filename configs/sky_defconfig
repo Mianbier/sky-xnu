@@ -1,0 +1,55 @@
+# Kernel configuration of the sky image. CONFIG_XNU_<NAME> becomes XNU_<NAME> for
+# the kernel build.
+#
+# Modelled on UniXNU-sheng/configs/sheng_defconfig, trimmed to what sky needs for a
+# first bring-up: no GPU, no Wi-Fi, no touch, single core. Those come later, once
+# the kernel reaches the platform expert and starts talking to UFS.
+
+CONFIG_XNU_BUILD_ARCHIVES=y
+CONFIG_XNU_SOURCE_CORECRYPTO14=y
+CONFIG_XNU_SOURCE_PTHREAD=y
+CONFIG_XNU_ARM_DT_PLATFORM=y
+CONFIG_XNU_ARMCPU=y
+
+# Storage. This is the one that matters: sky's UFS is reached from inside XNU
+# through NativeUfs, not through the UEFI vendor drivers, which assert.
+CONFIG_XNU_NATIVE_UFS=y
+
+CONFIG_XNU_NATIVE_RAM_BLOCK=y
+CONFIG_XNU_TRUST_CACHE_RUNTIME=y
+CONFIG_XNU_SOURCE_MOCKFS=y
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=y
+
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=y
+CONFIG_XNU_NATIVE_ARCH_TIMER=y
+CONFIG_XNU_NATIVE_PAN=y
+CONFIG_XNU_BOOT_PROGRESS=y
+
+# Display: the legacy framebuffer path the firmware hands over. sky's panel is
+# 1080x2460 with splash_region at 0xB8000000.
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
+
+# Off for the first boot.
+CONFIG_XNU_NATIVE_AES=n
+CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
+CONFIG_XNU_VERIFIED_ROOT_PROBE=n
+CONFIG_XNU_OWNER_ROOT_AUDIT=n
+CONFIG_XNU_OWNER_ROOT_TRUST=n
+CONFIG_XNU_OWNER_CACHE_MOUNT=n
+CONFIG_XNU_OWNER_CACHE_STARTUP=n
+CONFIG_XNU_OWNER_BOOT_MANIFEST=n
+CONFIG_XNU_OWNER_DATA_MOUNT=n
+CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
+CONFIG_XNU_NATIVE_ADRENO=n
+CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
+CONFIG_XNU_ARMVIRT_PLATFORM=n
+
+CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
+CONFIG_XNU_EXTRA_LD_ARCHIVES=""
+
+# TODO: the APFS Data volume UUID read from the built userdata image, and the
+# archive paths for the verified bundles once they exist.
+# CONFIG_XNU_OWNER_DATA_VOLUME_UUID="..."
+# CONFIG_XNU_NATIVE_VIRTIO_BLOCK_ARCHIVE="{tree}/build/native-virtio-block-verified-bundle/libNativeVirtioBlock.a"
+# CONFIG_XNU_VERIFIED_ROOT_ARCHIVE="{tree}/build/verified-root-os-xnu-bundle/libVerifiedRootProbe.a"
