@@ -62,16 +62,21 @@ jobs:
           ls "$THEOS/sdks" || true
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
-      - name: Dependencies for the kernel (mig, unifdef, tcsh, SDK overlay)
-        run: |
-          cd work
-          chmod +x xnu/apply.sh xnu-deps/setup.sh xnu-build.sh xnu/export.sh || true
-          ./xnu-deps/setup.sh 2>&1 | tail -40
-
+      # README order matters: apply.sh lays the tree down, setup.sh then builds
+      # what the kernel links against (libfirehose_kernel among them).
       - name: xnu/apply.sh
         run: |
           cd work
+          chmod +x xnu/apply.sh xnu-deps/setup.sh xnu-build.sh xnu/export.sh || true
           ./xnu/apply.sh
+
+      - name: xnu-deps/setup.sh
+        run: |
+          cd work
+          ./xnu-deps/setup.sh 2>&1 | tail -60
+          echo "=== libraries the kernel links against ==="
+          find work -name 'libfirehose*' -o -name 'libcorecrypto*' 2>/dev/null | head
+          find . -name 'libfirehose*' 2>/dev/null | head
 
       - name: build
         run: |
