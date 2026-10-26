@@ -1,0 +1,92 @@
+name: hakios-kernel
+
+# Build the HakiOS kernel the way xnu/README.md says, on Linux:
+#   xnu/apply.sh        Apple's xnu-8796.121.2 + hakios.patch + files/
+#   xnu-deps/setup.sh   mig/unifdef/tcsh, the SDK overlay, two libraries
+#   ./xnu-build.sh -j -k
+# The result is mach.development.bcm2837, the kernel the loader expects
+# (linked at 0xFFFFFFF007004000).
+
+on:
+  push:
+    paths:
+      - 'hakios/**'
+      - '.github/workflows/hakios-kernel.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: hakios-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Space
+        run: df -h / /mnt 2>/dev/null || df -h
+
+      - name: Dependencies
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git curl ca-certificates python3 python3-pip perl \
+            xz-utils clang lld llvm zlib1g-dev libssl-dev cmake pkg-config \
+            flex bison libncurses-dev bsdextrautils cpio rsync unzip zip \
+            libbz2-dev liblzma-dev uuid-dev libelf-dev
+          clang --version | head -1
+          lld --version | head -1
+          python3 --version
+          perl --version | head -2
+
+      - name: HakiOS tree
+        run: |
+          git clone --depth 1 https://github.com/oosexgang/hackios-xnu-kernel.git work
+          cd work
+          git log --oneline -1
+          ls
+
+      - name: theos
+        run: |
+          export THEOS=$HOME/theos
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)" || true
+          if [ ! -x "$THEOS/bin/dm.pl" ] && [ ! -d "$THEOS/toolchain" ]; then
+            echo "install-theos did not lay out a toolchain; cloning by hand"
+            git clone --depth 1 https://github.com/theos/theos.git "$THEOS"
+            mkdir -p "$THEOS/sdks"
+            curl -fL -o /tmp/sdk.zip https://github.com/theos/sdks/releases/download/master/iPhoneOS16.5.sdk.zip
+            unzip -q /tmp/sdk.zip -d "$THEOS/sdks"
+          fi
+          ls "$THEOS" || true
+          ls "$THEOS/sdks" || true
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+      - name: Dependencies for the kernel (mig, unifdef, tcsh, SDK overlay)
+        run: |
+          cd work
+          chmod +x xnu/apply.sh xnu-deps/setup.sh xnu-build.sh xnu/export.sh || true
+          ./xnu-deps/setup.sh 2>&1 | tail -40
+
+      - name: xnu/apply.sh
+        run: |
+          cd work
+          ./xnu/apply.sh
+
+      - name: build
+        run: |
+          cd work
+          ./xnu-build.sh -j$(nproc) -k 2>&1 | tail -60 || true
+          echo "=== looking for the kernel ==="
+          find xnu-src -name 'mach.development*' -o -name 'mach.*' 2>/dev/null | head
+          ls -la xnu-src/xnu-8796.121.2/BUILD/obj/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hakios-kernel
+          if-no-files-found: warn
+          path: |
+            work/xnu-src/xnu-8796.121.2/BUILD/obj/**/mach.*
+            work/**/*.log
+          retention-days: 7
